@@ -140,9 +140,10 @@ except:
     pass
 try:
     fx = getConfig('EXTENTION_FILTER')
-    fx = fx.split(' ')
-    for x in fx:
-        EXTENTION_FILTER.add('.' + x)
+    if len(fx) > 0:
+        fx = fx.split(' ')
+        for x in fx:
+            EXTENTION_FILTER.add(x.lower())
 except:
     pass
 try:
