@@ -11,12 +11,10 @@ from html import escape
 from telegram.ext import CommandHandler
 from telegram import InlineKeyboardMarkup
 
-from bot import Interval, INDEX_URL, BUTTON_FOUR_NAME, BUTTON_FOUR_URL, BUTTON_FIVE_NAME, BUTTON_FIVE_URL, \
-                BUTTON_SIX_NAME, BUTTON_SIX_URL, VIEW_LINK, aria2, QB_SEED, dispatcher, DOWNLOAD_DIR, \
+from bot import Interval, INDEX_URL, VIEW_LINK, aria2, QB_SEED, dispatcher, DOWNLOAD_DIR, \
                 download_dict, download_dict_lock, TG_SPLIT_SIZE, LOGGER, DB_URI, INCOMPLETE_TASK_NOTIFIER
 from bot.helper.ext_utils.bot_utils import is_url, is_magnet, is_gdtot_link, is_mega_link, is_gdrive_link, get_content_type
 from bot.helper.ext_utils.fs_utils import get_base_name, get_path_size, split_file, clean_download
-from bot.helper.ext_utils.shortenurl import short_url
 from bot.helper.ext_utils.exceptions import DirectDownloadLinkException, NotSupportedExtractionArchive
 from bot.helper.mirror_utils.download_utils.aria2_download import add_aria2c_download
 from bot.helper.mirror_utils.download_utils.gd_downloader import add_gd_download
@@ -108,7 +106,7 @@ class MirrorListener:
                 if ospath.isdir(m_path):
                     for dirpath, subdir, files in walk(m_path, topdown=False):
                         for file_ in files:
-                            if file_.endswith(".zip") or re_search(r'\.part0*1\.rar$|\.7z\.0*1$|\.zip\.0*1$', file_) \
+                            if file_.endswith((".zip", ".7z")) or re_search(r'\.part0*1\.rar$|\.7z\.0*1$|\.zip\.0*1$', file_) \
                                or (file_.endswith(".rar") and not re_search(r'\.part\d+\.rar$', file_)):
                                 m_path = ospath.join(dirpath, file_)
                                 if self.pswd is not None:
@@ -118,7 +116,7 @@ class MirrorListener:
                                 if result.returncode != 0:
                                     LOGGER.error('Unable to extract archive!')
                         for file_ in files:
-                            if file_.endswith((".rar", ".zip")) or re_search(r'\.r\d+$|\.7z\.\d+$|\.z\d+$|\.zip\.\d+$', file_):
+                            if file_.endswith((".rar", ".zip", ".7z")) or re_search(r'\.r\d+$|\.7z\.\d+$|\.z\d+$|\.zip\.\d+$', file_):
                                 del_path = ospath.join(dirpath, file_)
                                 osremove(del_path)
                     path = f'{DOWNLOAD_DIR}{self.uid}/{name}'
@@ -205,7 +203,7 @@ class MirrorListener:
                 sendMessage(msg, self.bot, self.message)
             else:
                 fmsg = ''
-                for index, (name, link) in enumerate(files.items(), start=1):
+                for index, (link, name) in enumerate(files.items(), start=1):
                     fmsg += f"{index}. <a href='{link}'>{name}</a>\n"
                     if len(fmsg.encode() + msg.encode()) > 4000:
                         sendMessage(msg + fmsg, self.bot, self.message)
@@ -220,7 +218,6 @@ class MirrorListener:
                 msg += f'\n<b>Files: </b>{files}'
             msg += f'\n\n<b>cc: </b>{self.tag}'
             buttons = ButtonMaker()
-            link = short_url(link)
             buttons.buildbutton("☁️ Drive Link", link)
             LOGGER.info(f'Done Uploading {name}')
             if INDEX_URL is not None:
@@ -228,21 +225,12 @@ class MirrorListener:
                 share_url = f'{INDEX_URL}/{url_path}'
                 if ospath.isdir(f'{DOWNLOAD_DIR}/{self.uid}/{name}'):
                     share_url += '/'
-                    share_url = short_url(share_url)
                     buttons.buildbutton("⚡ Index Link", share_url)
                 else:
-                    share_url = short_url(share_url)
                     buttons.buildbutton("⚡ Index Link", share_url)
                     if VIEW_LINK:
                         share_urls = f'{INDEX_URL}/{url_path}?a=view'
-                        share_urls = short_url(share_urls)
                         buttons.buildbutton("🌐 View Link", share_urls)
-            if BUTTON_FOUR_NAME is not None and BUTTON_FOUR_URL is not None:
-                buttons.buildbutton(f"{BUTTON_FOUR_NAME}", f"{BUTTON_FOUR_URL}")
-            if BUTTON_FIVE_NAME is not None and BUTTON_FIVE_URL is not None:
-                buttons.buildbutton(f"{BUTTON_FIVE_NAME}", f"{BUTTON_FIVE_URL}")
-            if BUTTON_SIX_NAME is not None and BUTTON_SIX_URL is not None:
-                buttons.buildbutton(f"{BUTTON_SIX_NAME}", f"{BUTTON_SIX_URL}")
             sendMarkup(msg, self.bot, self.message, InlineKeyboardMarkup(buttons.build_menu(2)))
             if self.isQbit and QB_SEED and not self.extract:
                 if self.isZip:
@@ -339,15 +327,14 @@ def _mirror(bot, message, isZip=False, extract=False, isQbit=False, isLeech=Fals
                     link = reply_text.strip()
             elif file.mime_type != "application/x-bittorrent" and not isQbit:
                 listener = MirrorListener(bot, message, isZip, extract, isQbit, isLeech, pswd, tag)
-                tg_downloader = TelegramDownloadHelper(listener)
-                tg_downloader.add_download(message, f'{DOWNLOAD_DIR}{listener.uid}/', name)
+                Thread(target=TelegramDownloadHelper(listener).add_download, args=(message, f'{DOWNLOAD_DIR}{listener.uid}/', name)).start()
                 if multi > 1:
-                    sleep(3)
+                    sleep(4)
                     nextmsg = type('nextmsg', (object, ), {'chat_id': message.chat_id, 'message_id': message.reply_to_message.message_id + 1})
                     nextmsg = sendMessage(message_args[0], bot, nextmsg)
                     nextmsg.from_user.id = message.from_user.id
                     multi -= 1
-                    sleep(3)
+                    sleep(4)
                     Thread(target=_mirror, args=(bot, nextmsg, isZip, extract, isQbit, isLeech, pswd, multi)).start()
                 return
             else:
@@ -420,8 +407,7 @@ def _mirror(bot, message, isZip=False, extract=False, isQbit=False, isLeech=Fals
     elif is_mega_link(link):
         Thread(target=add_mega_download, args=(link, f'{DOWNLOAD_DIR}{listener.uid}/', listener)).start()
     elif isQbit and (is_magnet(link) or ospath.exists(link)):
-        qb_dl = QbDownloader(listener)
-        Thread(target=qb_dl.add_qb_torrent, args=(link, f'{DOWNLOAD_DIR}{listener.uid}', qbitsel)).start()
+        Thread(target=QbDownloader(listener).add_qb_torrent, args=(link, f'{DOWNLOAD_DIR}{listener.uid}', qbitsel)).start()
     else:
         if len(mesg) > 1:
             try:
@@ -439,7 +425,7 @@ def _mirror(bot, message, isZip=False, extract=False, isQbit=False, isLeech=Fals
         Thread(target=add_aria2c_download, args=(link, f'{DOWNLOAD_DIR}{listener.uid}', listener, name, auth)).start()
 
     if multi > 1:
-        sleep(3)
+        sleep(4)
         nextmsg = type('nextmsg', (object, ), {'chat_id': message.chat_id, 'message_id': message.reply_to_message.message_id + 1})
         msg = message_args[0]
         if len(mesg) > 2:
@@ -447,7 +433,7 @@ def _mirror(bot, message, isZip=False, extract=False, isQbit=False, isLeech=Fals
         nextmsg = sendMessage(msg, bot, nextmsg)
         nextmsg.from_user.id = message.from_user.id
         multi -= 1
-        sleep(3)
+        sleep(4)
         Thread(target=_mirror, args=(bot, nextmsg, isZip, extract, isQbit, isLeech, pswd, multi)).start()
 
 
